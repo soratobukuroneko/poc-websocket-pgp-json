@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Register</title>
+    <meta charset="utf-8">
+    <script src="openpgp.min.js"></script>
+    <script src="config.js"></script>
+    <script src="registered.js"></script>
+    <script>
+        "use strict"
+
+        async function doDeleteKeys() {
+            await deleteKeys(
+                document.getElementById("passwordDel").value,
+                () => { showKeysInitForm() },
+                (error_message) => {
+                    document.getElementById("deleteError").innerHTML = "Error " + error_message
+                }
+            )
+        }
+
+        async function doInitKeys() {
+            const pass1 = document.getElementById("password").value
+            const pass2 = document.getElementById("passConfirmation").value
+            if (pass1 !== pass2) {
+                document.getElementById("passError").innerHTML = "Passwords doesn't match"
+                setTimeout(() => document.getElementById("passError").innerHTML = "", 2500)
+                return
+            }
+
+            const myKeys = await initKeys(pass1)
+            showKeyId(myKeys.id)
+            document.getElementById("divInitKeys").style.display = "none"
+            document.getElementById("divSubmitPubKey").style.display = "block"
+        }
+
+        async function doSubmitPubKey() {
+            await submitPubKey()
+            if (isMyKeyOnserver(loadMyKeys().id)) {
+                showKeysDeletionForm()
+            }
+        }
+
+        function showKeyId(id) {
+            for (const e of document.getElementsByClassName("keyId")) {
+                e.innerHTML = id
+            }
+        }
+
+        function showKeysDeletionForm() {
+            for (const e of document.getElementsByClassName("keysInit")) {
+                e.style.display = "none"
+            }
+            document.getElementById("divKeysDeletionForm").style.display = "block"
+        }
+
+        function showKeysInitForm() {
+            document.getElementById("divKeysDeletionForm").style.display = "none"
+            document.getElementById("divInitKeys").style.display = "block"
+        }
+
+        document.addEventListener("DOMContentLoaded", async () => {
+            const keys = loadMyKeys()
+            if (keys !== null) {
+                showKeyId(keys.id)
+                const registered = await isMyKeyOnserver(keys.id)
+                if (registered) {
+                    showKeysDeletionForm()
+                } else {
+                    document.getElementById("divInitKeys").style.display = "none"
+                    document.getElementById("divSubmitPubKey").style.display = "block"
+                }
+            }
+        }, false)
+    </script>
+</head>
+
+<body>
+    <div id="divInitKeys" class="keysInit">
+        <form action="javascript:doInitKeys()">
+            <h1>Create keys</h1>
+            <p>
+                <label>Password:</label><br>
+                <input type="password" id="password">
+            </p>
+            <p>
+                <label>Confirm password:</label><br>
+                <input type="password" id="passConfirmation">
+            </p>
+            <p>(If you lose it, nobody can recover it.)</p>
+            <p id="passError"></p>
+            <button>Create</button>
+        </form>
+    </div>
+    <div id="divSubmitPubKey" class="keysInit" style="display: none">
+        <form action="javascript:doSubmitPubKey()">
+            <h1>Your key</h1>
+            <dl>
+                <dt>Key fingerprint:</dt>
+                <dd class="keyId"></dd>
+            </dl>
+            <button>Register public key</button>
+        </form>
+    </div>
+    <div id="divKeysDeletionForm" style="display: none">
+        <form action="javascript:doDeleteKeys()">
+            <h1>Delete your keys and server access?</h1>
+            <dl>
+                <dt>Key fingerprint:</dt>
+                <dd class="keyId"></dd>
+            </dl>
+            <p>
+                <label>Password:</label><br>
+                <input type="password" id="passwordDel">
+            </p>
+            <button>Delete</button>
+        </form>
+        <p id="deleteError"></p>
+    </div>
+</body>
+</html>
