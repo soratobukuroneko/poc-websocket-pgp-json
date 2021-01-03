@@ -37,7 +37,7 @@ class RequestHandler(BaseHTTPRequestHandler):
         self._close_websocket()
 
     def _api_get_form_keys_fingerprints(self):
-        if self._pgpjson_user["access_level"] == ADMIN_ACCESS:
+        if self._pgpjson_user["access_level"] != ADMIN_ACCESS:
             self._close_websocket(1008, "Access denied.")
             return
 
@@ -109,7 +109,7 @@ class RequestHandler(BaseHTTPRequestHandler):
         self.wfile.write(json.dumps({ "message": message }).encode())
 
     def _api_set_form_keys_fingerprints(self):
-        if self._pgpjson_user["access_level"] == ADMIN_ACCESS:
+        if self._pgpjson_user["access_level"] != ADMIN_ACCESS:
             self._close_websocket(1008, "Access denied.")
             return
 
