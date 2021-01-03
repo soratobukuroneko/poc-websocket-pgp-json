@@ -2,8 +2,15 @@
 
 const re_nonce = /^[A-Za-z0-9\-_=]+$/
 
-async function deleteKeys(password, onDelete, onError) {
-    await websocketApi(password, "key/delete",
+function amIAdmin(password, myFingerprint, onAnswer, onError) {
+    websocketApi(password, "user/" + myFingerprint,
+        answer => onAnswer(answer !== null && answer.access_level === ADMIN_ACCESS),
+        () => {},
+        onError)
+}
+
+function deleteKeys(password, onDelete, onError) {
+    websocketApi(password, "key/delete",
         () => {},
         () => {
             localStorage.removeItem("my_keys")
@@ -13,8 +20,8 @@ async function deleteKeys(password, onDelete, onError) {
     )
 }
 
-async function getAllUserKeys(password, onAnswer, onError) {
-    await websocketApi(password, "key/all", onAnswer, onError)
+function getAllUser(password, onAnswer, onError) {
+    websocketApi(password, "user/all", onAnswer, () => {}, onError)
 }
 
 async function initKeys(passphrase) {
@@ -54,13 +61,12 @@ function loadMyKeys() {
 }
 
 async function loadSrvKey() {
-    //let key = localStorage.getItem("srv_key")
-    let key = null
+    let key = sessionStorage.getItem("srv_key")
     if (key === null) {
         const res = await fetch(FETCH_PROTOCOL + "://" + SRV + "/key/srv")
         if (res.ok) {
             key = await res.text()
-            //localStorage.setItem("srv_key", key)
+            sessionStorage.setItem("srv_key", key)
         } else {
             throw Error("Error while fetching server key.")
         }

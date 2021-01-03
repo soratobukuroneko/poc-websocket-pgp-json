@@ -7,25 +7,89 @@
     <script src="config.js"></script>
     <script src="registered.js"></script>
     <script>
-        "use strict"
+    "use strict"
 
+    function adminCheck() {
+        const fingerprint = loadMyKeys().id.toUpperCase()
+        const password = document.getElementById("passwordAdminCheck").value
+        amIAdmin(password, fingerprint,
+            answer => {
+                document.getElementById("login").style.display = "none"
+                if (answer) {
+                    document.getElementById("admin").style.display = "block"
+                    getAllUser(password,
+                        users => {
+                            const select1 = document.getElementById("encryptionKeys1")
+                            const select2 = document.getElementById("encryptionKeys2")
+                            for (const user of users) {
+                                if (user.fingerprint !== fingerprint) {
+                                    const option1 = document.createElement("option")
+                                    const option2 = document.createElement("option")
+                                    option1.value = user.fingerprint
+                                    option2.value = user.fingerprint
+                                    option1.innerHTML = user.fingerprint
+                                    option2.innerHTML = user.fingerprint
+                                    select1.appendChild(option1)
+                                    select2.appendChild(option2)
+                                }
+                            }
+                        },
+                        error => document.getElementById("getUsersError").innerHTML = "Error " + error
+                    )
+                } else {
+                    document.getElementById("noAdmin").style.display = "block"
+                }
+            },
+            error => document.getElementById("adminCheckError").innerHTML = "Error " + error
+        )
+    }
+
+    document.addEventListener("DOMContentLoaded", async () => {
+        
+    })
     </script>
 </head>
 
 <body>
-    <h1>Data collection settings</h1>
-    <form>
-        <h2>Form 1</h2>
-        <p>
-            <label>Encrypt for the following keys:</label><br>
-            <select id="encryptionKeys1" multiple></select>
-        </p>
-        <h2>Form 2</h2>
-        <p>
-            <label>Encrypt for the following keys:</label><br>
-            <select id="encryptionKeys2" multiple></select>
-        </p>
-        <button>Submit</button>
-    </form>
+    <div id="login">
+        <h1>Unlock your key to check if you are admin:</h1>
+        <form action="javascript:adminCheck()">
+            <p>
+                <label>Password:</label><br>
+                <input type="password" id="passwordAdminCheck">
+            </p>
+            <p>
+                <button>Check</button>
+            </p>
+        </form>
+        <p id="adminCheckError"></p>
+    </div>
+    <div id="admin" style="display: none">
+        <h1>Data collection settings</h1>
+        <p>(own key is always enabled)</p>
+        <form>
+            <h2>Form 1</h2>
+            <p>
+                <label>Encrypt for the following keys:</label><br>
+                <select id="encryptionKeys1" multiple></select>
+            </p>
+            <h2>Form 2</h2>
+            <p>
+                <label>Encrypt for the following keys:</label><br>
+                <select id="encryptionKeys2" multiple></select>
+            </p>
+            <p>
+                <label>Password:</label><br>
+                <input type="password" id="password">
+            </p>
+            <p>
+                <button>Submit</button>
+            </p>
+        </form>
+        <p id="getUsersError"></p>
+    </div>
+    <div id="noAdmin" style="display: none">
+        <h1>You are not admin</h1>
+    </div>
 </body>
 </html>

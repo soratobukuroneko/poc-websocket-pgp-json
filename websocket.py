@@ -249,7 +249,7 @@ def decrypt_pgp_json(wfile: BufferedIOBase, gpg_context: GPGContext, message: We
         plaintext, result, verify_result = gpg_context.decrypt(message.payload.encode())
     except GPGMEError as error:
         close(wfile, 1002, f"Failed to decrypt message.")
-        raise websocket.WebSocketCloseException(1002, f"Failed to decrypt websocket message: {error}.")
+        raise WebSocketCloseException(1002, f"Failed to decrypt websocket message: {error}.")
 
     if len(verify_result.signatures) == 0:
         close(wfile, 1008, "No signature recognized.")

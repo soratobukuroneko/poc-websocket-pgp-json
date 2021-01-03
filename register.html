@@ -7,71 +7,71 @@
     <script src="config.js"></script>
     <script src="registered.js"></script>
     <script>
-        "use strict"
+    "use strict"
 
-        async function doDeleteKeys() {
-            await deleteKeys(
-                document.getElementById("passwordDel").value,
-                () => { showKeysInitForm() },
-                (error_message) => {
-                    document.getElementById("deleteError").innerHTML = "Error " + error_message
-                }
-            )
-        }
-
-        async function doInitKeys() {
-            const pass1 = document.getElementById("password").value
-            const pass2 = document.getElementById("passConfirmation").value
-            if (pass1 !== pass2) {
-                document.getElementById("passError").innerHTML = "Passwords doesn't match"
-                setTimeout(() => document.getElementById("passError").innerHTML = "", 2500)
-                return
+    function doDeleteKeys() {
+        deleteKeys(
+            document.getElementById("passwordDel").value,
+            () => { showKeysInitForm() },
+            (error_message) => {
+                document.getElementById("deleteError").innerHTML = "Error " + error_message
             }
+        )
+    }
 
-            const myKeys = await initKeys(pass1)
-            showKeyId(myKeys.id)
-            document.getElementById("divInitKeys").style.display = "none"
-            document.getElementById("divSubmitPubKey").style.display = "block"
+    async function doInitKeys() {
+        const pass1 = document.getElementById("password").value
+        const pass2 = document.getElementById("passConfirmation").value
+        if (pass1 !== pass2) {
+            document.getElementById("passError").innerHTML = "Passwords doesn't match"
+            setTimeout(() => document.getElementById("passError").innerHTML = "", 2500)
+            return
         }
 
-        async function doSubmitPubKey() {
-            await submitPubKey()
-            if (isMyKeyOnserver(loadMyKeys().id)) {
+        const myKeys = await initKeys(pass1)
+        showKeyId(myKeys.id)
+        document.getElementById("divInitKeys").style.display = "none"
+        document.getElementById("divSubmitPubKey").style.display = "block"
+    }
+
+    async function doSubmitPubKey() {
+        await submitPubKey()
+        if (isMyKeyOnserver(loadMyKeys().id)) {
+            showKeysDeletionForm()
+        }
+    }
+
+    function showKeyId(id) {
+        for (const e of document.getElementsByClassName("keyId")) {
+            e.innerHTML = id
+        }
+    }
+
+    function showKeysDeletionForm() {
+        for (const e of document.getElementsByClassName("keysInit")) {
+            e.style.display = "none"
+        }
+        document.getElementById("divKeysDeletionForm").style.display = "block"
+    }
+
+    function showKeysInitForm() {
+        document.getElementById("divKeysDeletionForm").style.display = "none"
+        document.getElementById("divInitKeys").style.display = "block"
+    }
+
+    document.addEventListener("DOMContentLoaded", async () => {
+        const keys = loadMyKeys()
+        if (keys !== null) {
+            showKeyId(keys.id)
+            const registered = await isMyKeyOnserver(keys.id)
+            if (registered) {
                 showKeysDeletionForm()
+            } else {
+                document.getElementById("divInitKeys").style.display = "none"
+                document.getElementById("divSubmitPubKey").style.display = "block"
             }
         }
-
-        function showKeyId(id) {
-            for (const e of document.getElementsByClassName("keyId")) {
-                e.innerHTML = id
-            }
-        }
-
-        function showKeysDeletionForm() {
-            for (const e of document.getElementsByClassName("keysInit")) {
-                e.style.display = "none"
-            }
-            document.getElementById("divKeysDeletionForm").style.display = "block"
-        }
-
-        function showKeysInitForm() {
-            document.getElementById("divKeysDeletionForm").style.display = "none"
-            document.getElementById("divInitKeys").style.display = "block"
-        }
-
-        document.addEventListener("DOMContentLoaded", async () => {
-            const keys = loadMyKeys()
-            if (keys !== null) {
-                showKeyId(keys.id)
-                const registered = await isMyKeyOnserver(keys.id)
-                if (registered) {
-                    showKeysDeletionForm()
-                } else {
-                    document.getElementById("divInitKeys").style.display = "none"
-                    document.getElementById("divSubmitPubKey").style.display = "block"
-                }
-            }
-        }, false)
+    }, false)
     </script>
 </head>
 

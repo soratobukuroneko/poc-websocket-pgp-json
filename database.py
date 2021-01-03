@@ -16,9 +16,13 @@ class DataBase():
              access_level INTEGER NOT NULL)""")
         cursor.execute("""CREATE TABLE IF NOT EXISTS data_key_relation
             (data INTEGER NOT NULL,
-             user TEXT NOT NULL,
+             fingerprint TEXT NOT NULL,
              FOREIGN KEY(data) REFERENCES encrypted_data(id),
-             FOREIGN KEY(user) REFERENCES users(fingerprint))""")
+             FOREIGN KEY(fingerprint) REFERENCES users(fingerprint))""")
+        cursor.execute("""CREATE TABLE IF NOT EXISTS form_key_relation
+            (form INTEGER NOT NULL,
+             fingerprint TEXT NOT NULL,
+             FOREIGN KEY(fingerprint) REFERENCES users(fingerprint))""")
         cursor.execute("""CREATE TABLE IF NOT EXISTS encrypted_data
             (id INTEGER PRIMARY KEY AUTOINCREMENT,
              secret TEXT)""")
@@ -42,6 +46,16 @@ class DataBase():
             value = value[0]
         return value
 
+    def getFormKeysFingerprints(self, formId: int):
+        cursor = self._connection.cursor()
+        cursor.execute("SELECT fingerprint FROM form_key_relation WHERE form=:id", { "id": formId })
+        query_results = cursor.fetchall()
+        if query_results is not None:
+            return {
+                "form": formId,
+                "fingerprints": [row[0] for row in query_results]
+            }
+
     def getUser(self, fingerprint=None):
         cursor = self._connection.cursor()
         if fingerprint == None:
@@ -50,7 +64,7 @@ class DataBase():
             if query_results is not None:
                 return [{ "fingerprint": row[0], "access_level": row[1] } for row in query_results]
         else:
-            cursor.execute("SELECT * FROM users wHERE fingerprint=:fpr", { "fpr": fingerprint })
+            cursor.execute("SELECT * FROM users wHERE fingerprint=:fpr", { "fpr": fingerprint.upper() })
             query_result = cursor.fetchone()
             if query_result is not None:
                 return { "fingerprint": query_result[0], "access_level": query_result[1] }
@@ -59,4 +73,11 @@ class DataBase():
         cursor = self._connection.cursor()
         cursor.execute("""INSERT INTO config VALUES (:key, :value)
             ON CONFLICT(key) DO UPDATE SET value = :value""", { "key": key, "value": value })
+        self._connection.commit()
+
+    def setFormKeysFingerprints(self, formId: int, fingerprints: list):
+        cursor = self._connection.cursor()
+        cursor.execute("DELETE FROM form_key_relation WHERE form=:id", { "id": formId })
+        for fpr in fingerprints:
+            cursor.execute("INSERT INTO form_key_relation VALUES (:form, :fingerprint)", { "form": formId, "fingerprint": fpr })
         self._connection.commit()

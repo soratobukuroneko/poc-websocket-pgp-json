@@ -23,32 +23,64 @@ class JsonMissingFieldException(Exception):
 
 class RequestHandler(BaseHTTPRequestHandler):
     _RE_FILES = re.compile(r"^(/|/admin\.html|/config\.js|/registered\.js|/openpgp\.min\.js)$")
-    _RE_KEY_FINGERPRINT = re.compile(r"^/key/([0-9a-fA-F]{40})$")
+    _RE_FORM_ID = re.compile(r"^([0-9])$")
+    _RE_KEY_FINGERPRINT = re.compile(r"^([0-9a-fA-F]{40})$")
     _RE_PGP_JSON_REQUEST_FIELD = re.compile(r"^[0-9a-zA-Z_/]{3,100}$")
     _VALID_CONTENT_SUBTYPES = {"html", "javascript", "json", "plain"}
+
+    def _api_answer_pgp_json(self, payload):
+        request_answer = websocket.encrypt_pgp_json({
+            "request": self._pgpjson_pending_request,
+            "payload": payload
+        }, [self._pgpjson_client_key], self._gpg_context)
+        websocket.send_message(self.wfile, request_answer)
+        self._close_websocket()
+
+    def _api_get_form_keys_fingerprints(self):
+        if self._pgpjson_user["access_level"] == ADMIN_ACCESS:
+            self._close_websocket(1008, "Access denied.")
+            return
+
+        form_id = re.match(_RE_FORM_ID, self._pgpjson_pending_request.replace("form/get/", ""))
+        if form_id:
+            form_key_list = self.server.db.getFormKeysFingerprints(form_id.group(1))
+            self._api_answer_pgp_json(form_key_list)
+        else:
+            self._close_websocket(1002, "Invalid form ID.")
+
+    def _api_get_user(self):
+        user_fingerprint = re.match(self._RE_KEY_FINGERPRINT, self._pgpjson_pending_request.replace("user/", ""))
+        if user_fingerprint:
+            fpr = user_fingerprint.group(1)
+            if self._pgpjson_user["access_level"] == ADMIN_ACCESS or self._pgpjson_user["fingerprint"] == fpr:
+                user = self.server.db.getUser(fpr)
+                self._api_answer_pgp_json(user)
+            else:
+                self._close_websocket(1008, "Access denied.")
+        elif self._pgpjson_pending_request == "user/all":
+            if self._pgpjson_user["access_level"] == ADMIN_ACCESS:
+                users = self.server.db.getUser()
+                self._api_answer_pgp_json(users)
+            else:
+                self._close_websocket(1008, "Access denied.")
+        else:
+            self._close_websocket(1002, "Invalid user fingerprint.")
 
     def _api_get_user_key(self, fingerprints=None):
         keys = list()
         if fingerprints == None:
             for user in self.server.db.getUser():
                 keys.append({ "fingerprint": user["fingerprint"],
-                              "armored_key": (self.gpg_context.key_export(user["fingerprint"])).decode()})
+                              "armored_key": (self._gpg_context.key_export(user["fingerprint"])).decode()})
         else:
             for fpr in fingerprints:
                 if self.server.db.getUser(fpr) is not None:
                     keys.append({ "fingerprint": fpr,
-                                  "armored_key": (self.gpg_context.key_export(fpr)).decode()})
+                                  "armored_key": (self._gpg_context.key_export(fpr)).decode()})
                 else:
-                    websocket.close(self.wfile, 1008, "Asking for an unknown key.")
-                    self.websocket_connected = False
+                    self._close_websocket(1008, "Asking for an unknown key.")
                     return
-        request_answer = websocket.encrypt_pgp_json({
-            "request": self.websocket_pending_request,
-            "payload": keys
-        }, [self.websocket_client_key], self.gpg_context)
-        websocket.send_message(self.wfile, request_answer)
-        websocket.close(self.wfile)
-        self.websocket_connected = False
+        self._api_answer_pgp_json(keys)
 
     def _api_register_user(self):
         try:
@@ -76,59 +108,81 @@ class RequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(json.dumps({ "message": message }).encode())
 
-    def _api_unregister_user(self):
-        result = gpgme_op_delete_ext(self.server.gpg_context.wrapped, self.websocket_client_key, GPGME_DELETE_FORCE)
-        if result == GPG_ERR_NO_ERROR:
-            self.server.db.deleteUser(self.websocket_client_key.fpr)
-            print(f"Key {self.websocket_client_key.fpr} deleted.")
-            websocket.close(self.wfile)
+    def _api_set_form_keys_fingerprints(self):
+        if self._pgpjson_user["access_level"] == ADMIN_ACCESS:
+            self._close_websocket(1008, "Access denied.")
+            return
+
+        form_id = re.match(_RE_FORM_ID, self._pgpjson_pending_request.replace("form/set/", ""))
+        if form_id:
+            if self._pgpjson_payload is not None
+                and "fingerprints" in self._pgpjson_payload
+                and isinstance(self._pgpjson_payload["fingerprints"], list):
+                self.server.db.setFormKeysFingerprints(formId.group(1), self._pgpjson_payload["fingerprints"])
+                self._close_websocket()
+            else:
+                self._close_websocket(1002, "Invalid request payload.")
         else:
-            print(f"Failed to delete key {self.websocket_client_key.fpr}, status code: {result}.")
-            websocket.close(self.wfile, 1011)
-        self.websocket_connected = False
+            self._close_websocket(1002, "Invalid form ID.")
+
+    def _api_unregister_user(self):
+        if self._pgpjson_user["access_level"] == ADMIN_ACCESS:
+            self._close_websocket(1008, "Cannot delete admin account.")
+            return
+        result = gpgme_op_delete_ext(self._gpg_context.wrapped, self._pgpjson_client_key, GPGME_DELETE_FORCE)
+        if result == GPG_ERR_NO_ERROR:
+            self.server.db.deleteUser(self._pgpjson_client_key.fpr)
+            print(f"Key {self._pgpjson_client_key.fpr} deleted.")
+            self._close_websocket()
+        else:
+            print(f"Failed to delete key {self._pgpjson_client_key.fpr}, status code: {result}.")
+            self._close_websocket(1011, "Failed to delete key.")
 
     def _handle_api_request(self, message: websocket.WebSocketMessage):
-        signatures_keys = [self.websocket_client_key] if self.websocket_client_key is not None else None
-        json_, signatures = websocket.decrypt_pgp_json(self.wfile, self.gpg_context,
+        signatures_keys = [self._pgpjson_client_key] if self._pgpjson_client_key is not None else None
+        json_, signatures = websocket.decrypt_pgp_json(self.wfile, self._gpg_context,
                                                        message, signatures_keys)
 
+        # Authentication
         if len(signatures) != 1:
-            websocket.close(self.wfile, 1002, "Multi-signatures message not implemented.")
-            self.websocket_connected = False
+            self._close_websocket(1002, "Multi-signatures message not implemented.")
         elif "request" not in json_ or not re.match(self._RE_PGP_JSON_REQUEST_FIELD, json_["request"]):
-            websocket.close(self.wfile, 1002, "Missing or invalid request field.")
-            self.websocket_connected = False
+            self._close_websocket(1002, "Missing or invalid request field.")
 
-        elif self.websocket_nonce is None:
-            self.websocket_pending_request = json_["request"]
-            self.websocket_client_key = self.gpg_context.get_key(signatures[0].fpr)
+        elif self._pgpjson_nonce is None:
+            self._pgpjson_pending_request = json_["request"]
+            if "payload" in json_:
+                self._pgpjson_payload = json_["payload"]
+            self._pgpjson_client_key = self._gpg_context.get_key(signatures[0].fpr)
             self._request_signature()
-        elif "nonce" not in json_ or json_["nonce"] != self.websocket_nonce:
-            websocket.close(self.wfile, 1002, "Authentication failed.")
-            self.websocket_connected = False
+        elif "nonce" not in json_ or json_["nonce"] != self._pgpjson_nonce:
+            self._close_websocket(1002, "Authentication failed.")
+
+        self._pgpjson_user = self.server.db.getUser(self._pgpjson_client_key.fpr)
 
         # API "routes"
-        elif self.websocket_pending_request == "key/delete":
-            if self.server.db.getUser(self.websocket_client_key.fpr)["access_level"] == ADMIN_ACCESS:
-                websocket.close(self.wfile, 1008, "Cannot delete admin account.")
-                self.websocket_connected = False
-                return
+        if self._pgpjson_pending_request.startswith("form/get/"):
+            self._api_get_form_keys_fingerprints()
+        elif self._pgpjson_pending_request.startswith("form/set/"):
+            self._api_set_form_keys_fingerprints()
+        elif self._pgpjson_pending_request == "key/delete":
             self._api_unregister_user()
-        elif self.websocket_pending_request == "key/all":
-            if self.server.db.getUser(self.websocket_client_key.fpr)["access_level"] == ADMIN_ACCESS:
-                self._api_get_user_key()
-            else:
-                websocket.close(self.wfile, 1008, "API function reserved to admins.")
-                self.websocket_connected = False
+        elif self._pgpjson_pending_request.startswith("user/"):
+            self._api_get_user()
         else:
-            websocket.close(self.wfile, 1002, "API function undefined.")
-            self.websocket_connected = False
+            self._close_websocket(1002, "API function undefined.")
+
+    def _close_websocket(self, code=1000, reason=None):
+        websocket.close(self.wfile, code, reason)
+        self._websocket_connected = False
 
     def _handle_websocket_request(self):
-        self.websocket_client_key = None
-        self.websocket_nonce = None
-        self.websocket_pending_request = None
-        self.gpg_context = gpg.Context(armor=True,
+        self._pgpjson_client_key = None
+        self._pgpjson_nonce = None
+        self._pgpjson_pending_request = None
+        self._pgpjson_payload = None
+        self._pgpjson_user = None
+        self._gpg_context = gpg.Context(armor=True,
                                        home_dir=self.server.gpg_context.home_dir,
                                        offline=True,
                                        signers=[self.server.key])
@@ -136,16 +190,16 @@ class RequestHandler(BaseHTTPRequestHandler):
         try:
             proto = websocket.handshake(self, ["pgp-json"])
             if proto is None:
-                websocket.close(self.wfile, 1002, "I only speak pgp-json")
+                self._close_websocket(1002, "I only speak pgp-json")
                 return
-            self.websocket_connected = True
+            self._websocket_connected = True
             print(f"WebSocket connection with {self.client_address[0]}:{self.client_address[1]}")
         except websocket.HandshakeError as error:
             print(f"WebSocket handshake failed. {error.get_reason(error.why)}: {error.what}={error.value}")
             return
 
         try:
-            while self.websocket_connected:
+            while self._websocket_connected:
                 message = websocket.read_next_message(self.rfile, self.wfile)
                 self._handle_api_request(message)
         except websocket.WebSocketCloseException as close:
@@ -169,11 +223,12 @@ class RequestHandler(BaseHTTPRequestHandler):
         return data
 
     def _request_signature(self):
-        self.websocket_nonce = token_urlsafe(NONCE_BYTES)
+        self._pgpjson_nonce = token_urlsafe(NONCE_BYTES)
         signature_request = websocket.encrypt_pgp_json({
-            "nonce": self.websocket_nonce,
-            "request": self.websocket_pending_request
-        }, [self.websocket_client_key], self.gpg_context)
+            "nonce": self._pgpjson_nonce,
+            "payload": self._pgpjson_payload,
+            "request": self._pgpjson_pending_request
+        }, [self._pgpjson_client_key], self._gpg_context)
         websocket.send_message(self.wfile, signature_request)
 
     def _serve_err404(self):
@@ -206,22 +261,27 @@ class RequestHandler(BaseHTTPRequestHandler):
             _type = "application"
         self.send_header("Content-Type", f"{_type}/{subtype}; charset=utf-8")
 
+    def _set_cors(self):
+        self.send_header("Access-Control-Allow-Origin", "*")
+
     def do_GET(self):
         filepath = re.match(self._RE_FILES, self.path)
-        key_fingerprint = re.match(self._RE_KEY_FINGERPRINT, self.path)
+        key_fingerprint = re.match(self._RE_KEY_FINGERPRINT, self.path.replace("/key/", ""))
         if self.headers.get("Upgrade") == "websocket":
             self._handle_websocket_request()
-        elif key_fingerprint:
-            key = self.server.gpg_context.key_export(key_fingerprint.group(1))
-            key = key if key is not None else b"Unknown"
-            self.send_response(200)
-            self._set_content_type("plain")
-            self.end_headers()
-            self.wfile.write(key)
         elif self.path == "/key/srv":
             # May raise GPGMEerror
             key = self.server.gpg_context.key_export(self.server.db.getConfig("server_key"))
             self.send_response(200)
+            self._set_cors()
+            self._set_content_type("plain")
+            self.end_headers()
+            self.wfile.write(key)
+        elif self.path.startswith("/key/"):
+            key = self.server.gpg_context.key_export(key_fingerprint.group(1))
+            key = key if key is not None else b"Unknown"
+            self.send_response(200)
+            self._set_cors()
             self._set_content_type("plain")
             self.end_headers()
             self.wfile.write(key)
