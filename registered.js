@@ -2,34 +2,56 @@
 
 const re_nonce = /^[A-Za-z0-9\-_=]+$/
 
-function amIAdmin(password, myFingerprint, onAnswer, onError) {
+function amIAdmin(password, myFingerprint, onAnswer, onClose, onError) {
     websocketApi(password, "user/" + myFingerprint,
         answer => onAnswer(answer !== null && answer.access_level === ADMIN_ACCESS),
-        () => {},
+        onClose,
         onError)
 }
 
 function deleteKeys(password, onDelete, onError) {
-    websocketApi(password, "key/delete",
-        () => {},
-        () => {
-            localStorage.removeItem("my_keys")
-            onDelete()
-        },
-        onError
-    )
+    const deleteCb = () => {
+        localStorage.removeItem("my_keys")
+        onDelete()
+    }
+
+    if (!isMyKeyOnserver()) {
+        deleteCb()
+    } else {
+        websocketApi(password, "key/delete",
+            () => {},
+            deleteCb,
+            onError
+        )
+    }
 }
 
-function getAllUser(password, onAnswer, onError) {
-    websocketApi(password, "user/all", onAnswer, () => {}, onError)
+function getAllUser(password, onAnswer, onClose, onError) {
+    websocketApi(password, "user/all", onAnswer, onClose, onError)
+}
+
+function getCollectedData(password, formName, onAnswer, onClose, onError) {
+    websocketApi(password, "data/get/" + formName, onAnswer, onClose, onError)
+}
+
+function getFormKeysFingerprints(password, formId, onAnswer, onClose, onError) {
+    websocketApi(password, "form/get/" + formId, onAnswer, onClose, onError)
 }
 
 async function initKeys(passphrase) {
-    const kp = await openpgp.generateKey({
-        userIds: [{}],
-        curve: "ed25519",
-        passphrase,
-    })
+    let kp
+    if (passphrase.length) {
+        kp = await openpgp.generateKey({
+            userIds: [{}],
+            curve: "ed25519",
+            passphrase,
+        })
+    } else {
+        kp = await openpgp.generateKey({
+            userIds: [{}],
+            curve: "ed25519",
+        })
+    }
 
     const myKeys = {
         priv: kp.privateKeyArmored,
@@ -75,6 +97,10 @@ async function loadSrvKey() {
     return key
 }
 
+function setFormKeysFingerprints(password, formName, fingerprints, onClose, onError) {
+    websocketApi(password, "form/set/" + formName, answer => answer, onClose, onError, { fingerprints })
+}
+
 async function submitPubKey() {
     const body = JSON.stringify({
         pubKey: loadMyKeys().pub
@@ -85,12 +111,12 @@ async function submitPubKey() {
     })
 }
 
-async function websocketApi(password, request, onAnswer, onClose, onError) {
+async function websocketApi(password, request, onAnswer, onClose, onError, payload=null) {
     const srvKey = await loadSrvKey()
     const { keys: [myKey] } = await openpgp.key.readArmored(loadMyKeys().priv)
-    if (password)
+    if (password !== null && password.length)
         await myKey.decrypt(password)
-    const message = JSON.stringify({ request })
+    const message = JSON.stringify({ request, payload })
     const { data: encrypted_request } = await openpgp.encrypt({
         message: openpgp.message.fromText(message),
         publicKeys: (await openpgp.key.readArmored(srvKey)).keys,

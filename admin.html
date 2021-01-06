@@ -8,8 +8,10 @@
     <script src="registered.js"></script>
     <script>
     "use strict"
+    const formNames = ["text_field_form", "file_upload_form"]
 
-    function adminCheck() {
+    function adminLoad() {
+        const forms_fingerprints = []
         const fingerprint = loadMyKeys().id.toUpperCase()
         const password = document.getElementById("passwordAdminCheck").value
         amIAdmin(password, fingerprint,
@@ -17,43 +19,81 @@
                 document.getElementById("login").style.display = "none"
                 if (answer) {
                     document.getElementById("admin").style.display = "block"
-                    getAllUser(password,
-                        users => {
-                            const select1 = document.getElementById("encryptionKeys1")
-                            const select2 = document.getElementById("encryptionKeys2")
-                            for (const user of users) {
-                                if (user.fingerprint !== fingerprint) {
-                                    const option1 = document.createElement("option")
-                                    const option2 = document.createElement("option")
-                                    option1.value = user.fingerprint
-                                    option2.value = user.fingerprint
-                                    option1.innerHTML = user.fingerprint
-                                    option2.innerHTML = user.fingerprint
-                                    select1.appendChild(option1)
-                                    select2.appendChild(option2)
-                                }
-                            }
-                        },
-                        error => document.getElementById("getUsersError").innerHTML = "Error " + error
-                    )
+                    for (let name of formNames) {
+                        getFormKeysFingerprints(null, name,
+                            answer => forms_fingerprints[name] = answer.fingerprints,
+                            () => {},
+                            error => console.error(error)
+                        )
+                    }
+                    getCollectedData(null, formNames[0], async answer => {
+                        const list = document.getElementById("formData1")
+                        for (const data of answer.collected_data) {
+                            const { data: message } = await openpgp.decrypt({
+                                message: await openpgp.message.readArmored(data.secret),
+                                privateKeys: (await openpgp.key.readArmored(loadMyKeys().priv)).keys
+                            })
+                            const listElement = document.createElement("li")
+                            listElement.innerHTML = JSON.stringify(message)
+                            list.appendChild(listElement)
+                        }
+                    }, () => {}, error => console.error(error))
                 } else {
                     document.getElementById("noAdmin").style.display = "block"
                 }
+            },
+            () => {
+                getAllUser(null,
+                    users => {
+                        const select1 = document.getElementById("encryptionKeys1")
+                        const select2 = document.getElementById("encryptionKeys2")
+                        for (const user of users) {
+                            if (user.fingerprint !== fingerprint) {
+                                const option1 = document.createElement("option")
+                                const option2 = document.createElement("option")
+                                if (forms_fingerprints[formNames[0]].includes(user.fingerprint))
+                                    option1.selected = true
+                                if (forms_fingerprints[formNames[1]].includes(user.fingerprint))
+                                    option2.selected = true
+                                option1.value = user.fingerprint
+                                option2.value = user.fingerprint
+                                option1.innerHTML = user.fingerprint
+                                option2.innerHTML = user.fingerprint
+                                select1.appendChild(option1)
+                                select2.appendChild(option2)
+                            }
+                        }
+                    },
+                    () => {},
+                    error => document.getElementById("getUsersError").innerHTML = "Error " + error
+                )
             },
             error => document.getElementById("adminCheckError").innerHTML = "Error " + error
         )
     }
 
-    document.addEventListener("DOMContentLoaded", async () => {
-        
-    })
+    function reencrypt(index) {
+        getCollectedData(null, formNames[index], answer => console.log(answer), () => {}, error => console.error(error))
+    }
+
+    function submitFormConfig(index) {
+        const options = document.getElementById("encryptionKeys" + (index + 1)).options
+        let fingerprints = Array(loadMyKeys().id.toUpperCase())
+        fingerprints  = fingerprints.concat([...options].filter(option => option.selected).map(option => option.value))
+        setFormKeysFingerprints(null, formNames[index], fingerprints,
+            () => {
+                document.getElementById("formSubmitMsg" + (index + 1)).innerHTML = "Saved"
+            },
+            error => document.getElementById("formSubmitMsg" + (index + 1)).innerHTML = "Error " + error
+        )
+    }
     </script>
 </head>
 
 <body>
     <div id="login">
         <h1>Unlock your key to check if you are admin:</h1>
-        <form action="javascript:adminCheck()">
+        <form action="javascript:adminLoad()">
             <p>
                 <label>Password:</label><br>
                 <input type="password" id="passwordAdminCheck">
@@ -67,24 +107,40 @@
     <div id="admin" style="display: none">
         <h1>Data collection settings</h1>
         <p>(own key is always enabled)</p>
-        <form>
+        <form action="javascript:submitFormConfig(0)">
             <h2>Form 1</h2>
             <p>
                 <label>Encrypt for the following keys:</label><br>
                 <select id="encryptionKeys1" multiple></select>
             </p>
+            <p id="formSubmitMsg1"></p>
+            <p>
+                <button>Submit</button>
+            </p>
+        </form>
+        <form action="javascript:submitFormConfig(1)">
             <h2>Form 2</h2>
             <p>
                 <label>Encrypt for the following keys:</label><br>
                 <select id="encryptionKeys2" multiple></select>
             </p>
-            <p>
-                <label>Password:</label><br>
-                <input type="password" id="password">
-            </p>
+            <p id="formSubmitMsg2"></p>
             <p>
                 <button>Submit</button>
             </p>
+        </form>
+        <h1>Collected data</h1>
+        <h2>Form 1</h2>
+        <ul id="formData1">
+        </ul>
+        <form action="javascript:reencrypt(0)">
+            <p><button>Reencrypt</button></p>
+        </form>
+        <h2>Form 2</h2>
+        <ul id="formData2">
+        </ul>
+        <form action="javascript:reencrypt(1)">
+            <p><button>Reencrypt</button></p>
         </form>
         <p id="getUsersError"></p>
     </div>
