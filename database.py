@@ -87,6 +87,13 @@ class DataBase():
             if query_result is not None:
                 return { "fingerprint": query_result[0], "access_level": query_result[1] }
 
+    def set_collected_data(self, form_name: str, data):
+        cursor = self._connection.cursor()
+        for d in data:
+            cursor.execute("""UPDATE encrypted_data SET secret = :secret, need_reencryption = 0
+                WHERE id = :id""", { "secret": d["secret"], "id": d["id"] })
+        self._connection.commit()
+
     def set_config(self, key: str, value: str):
         cursor = self._connection.cursor()
         cursor.execute("""INSERT INTO config VALUES (:key, :value)

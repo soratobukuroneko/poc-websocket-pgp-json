@@ -1,49 +1,39 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <title>Register</title>
+    <title>Admin</title>
     <meta charset="utf-8">
     <script src="openpgp.min.js"></script>
     <script src="config.js"></script>
+    <script src="public.js"></script>
     <script src="registered.js"></script>
     <script>
     "use strict"
-    const formNames = ["text_field_form", "file_upload_form"]
+    let myPrivateKey
 
-    function adminLoad() {
+    async function adminLoad() {
         const forms_fingerprints = []
         const fingerprint = loadMyKeys().id.toUpperCase()
         const password = document.getElementById("passwordAdminCheck").value
-        amIAdmin(password, fingerprint,
+        myPrivateKey = await getPrivateKey(password)
+        amIAdmin(myPrivateKey, fingerprint,
             answer => {
                 document.getElementById("login").style.display = "none"
                 if (answer) {
                     document.getElementById("admin").style.display = "block"
                     for (let name of formNames) {
-                        getFormKeysFingerprints(null, name,
+                        getFormKeysFingerprints(myPrivateKey, name,
                             answer => forms_fingerprints[name] = answer.fingerprints,
                             () => {},
                             error => console.error(error)
                         )
                     }
-                    getCollectedData(null, formNames[0], async answer => {
-                        const list = document.getElementById("formData1")
-                        for (const data of answer.collected_data) {
-                            const { data: message } = await openpgp.decrypt({
-                                message: await openpgp.message.readArmored(data.secret),
-                                privateKeys: (await openpgp.key.readArmored(loadMyKeys().priv)).keys
-                            })
-                            const listElement = document.createElement("li")
-                            listElement.innerHTML = JSON.stringify(message)
-                            list.appendChild(listElement)
-                        }
-                    }, () => {}, error => console.error(error))
                 } else {
                     document.getElementById("noAdmin").style.display = "block"
                 }
             },
             () => {
-                getAllUser(null,
+                getAllUser(myPrivateKey,
                     users => {
                         const select1 = document.getElementById("encryptionKeys1")
                         const select2 = document.getElementById("encryptionKeys2")
@@ -73,16 +63,42 @@
     }
 
     function reencrypt(index) {
-        getCollectedData(null, formNames[index], answer => console.log(answer), () => {}, error => console.error(error))
+        let collected_data
+        getCollectedData(myPrivateKey, formNames[index],
+            answer => collected_data = answer.collected_data,
+            async () => {
+                const reencryptedData = []
+                const myKey = (await openpgp.key.readArmored(loadMyKeys().priv)).keys
+                const armoredKeys = (await getFormKeys(formNames[index])).keys
+                const publicKeys = await Promise.all(armoredKeys.map(async key => (await openpgp.key.readArmored(key)).keys[0]))
+                for (const data of collected_data) {
+                    const { data: decrypted } = await openpgp.decrypt({
+                        message: await openpgp.message.readArmored(data.secret),
+                        privateKeys: myKey
+                    })
+                    const { data: newSecret } = await openpgp.encrypt({
+                        message: openpgp.message.fromText(decrypted),
+                        publicKeys
+                    })
+                    reencryptedData.push({ id: data.id, secret: newSecret })
+                }
+                setCollectedData(myPrivateKey, formNames[index], reencryptedData, () => {
+                    document.getElementById("dataReencryptionMsg" + (index + 1)).innerHTML = "Data reencrypted"
+                    setTimeout(() => document.getElementById("dataReencryptionMsg" + (index + 1)).innerHTML = "", 2500)
+                }, error => document.getElementById("dataReencryptionMsg" + (index + 1)).innerHTML = error)
+            },
+            error => document.getElementById("dataReencryptionMsg" + (index + 1)).innerHTML = error
+        )
     }
 
     function submitFormConfig(index) {
         const options = document.getElementById("encryptionKeys" + (index + 1)).options
         let fingerprints = Array(loadMyKeys().id.toUpperCase())
         fingerprints  = fingerprints.concat([...options].filter(option => option.selected).map(option => option.value))
-        setFormKeysFingerprints(null, formNames[index], fingerprints,
+        setFormKeysFingerprints(myPrivateKey, formNames[index], fingerprints,
             () => {
                 document.getElementById("formSubmitMsg" + (index + 1)).innerHTML = "Saved"
+                setTimeout(() => document.getElementById("formSubmitMsg" + (index + 1)).innerHTML = "", 2500)
             },
             error => document.getElementById("formSubmitMsg" + (index + 1)).innerHTML = "Error " + error
         )
@@ -131,16 +147,14 @@
         </form>
         <h1>Collected data</h1>
         <h2>Form 1</h2>
-        <ul id="formData1">
-        </ul>
         <form action="javascript:reencrypt(0)">
             <p><button>Reencrypt</button></p>
+            <p id="dataReencryptionMsg1"></p>
         </form>
         <h2>Form 2</h2>
-        <ul id="formData2">
-        </ul>
         <form action="javascript:reencrypt(1)">
             <p><button>Reencrypt</button></p>
+            <p id="dataReencryptionMsg2"></p>
         </form>
         <p id="getUsersError"></p>
     </div>

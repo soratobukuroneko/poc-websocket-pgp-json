@@ -139,12 +139,12 @@ def _encode_data_frame(fin: int, opcode: int, rsv1: int, rsv2: int, rsv3: int, p
         raise ValueError("Control frame cannot have a payload bigger than 125 bytes.")
     payload_length = len(payload)
     length_bits = 7
-    if payload_length > 125:
-        length_bits = 7 + 16
+    if payload_length > 0x7fffffffffffffff:
+        raise ValueError(f"Payload maximal size exceeded (provided {payload_length} bytes).")
     elif payload_length > 0xffff:
         length_bits = 7 + 64
-    elif payload_length > 0x7fffffffffffffff:
-        raise ValueError(f"Payload maximal size exceeded (provided {payload_length} bytes).")
+    elif payload_length > 125:
+        length_bits = 7 + 16
     frame_size = int(1 + (1 + length_bits) / 8 + payload_length)
     frame = bytearray(frame_size)
     frame[0] = (fin << 7) + (rsv1 << 6) + (rsv2 << 5) + (rsv3 << 4) + opcode

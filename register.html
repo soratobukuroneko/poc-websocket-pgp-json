@@ -9,14 +9,19 @@
     <script>
     "use strict"
 
-    function doDeleteKeys() {
-        deleteKeys(
-            document.getElementById("passwordDel").value,
-            () => { showKeysInitForm() },
-            (error_message) => {
-                document.getElementById("deleteError").innerHTML = "Error " + error_message
-            }
-        )
+    async function doDeleteKeys() {
+        try {
+            const myKeys = await getPrivateKey(document.getElementById("passwordDel").value)
+            deleteKeys(
+                myKeys,
+                () => { showKeysInitForm() },
+                (error_message) => {
+                    document.getElementById("deleteError").innerHTML = "Error " + error_message
+                }
+            )
+        } catch (error) {
+            document.getElementById("deleteError").innerHTML = "Error " + error.message
+        }
     }
 
     async function doInitKeys() {
@@ -29,7 +34,7 @@
         }
 
         const myKeys = await initKeys(pass1)
-        showKeyId(myKeys.id)
+        showKeyId(myKeys.key.getFingerprint())
         document.getElementById("divInitKeys").style.display = "none"
         document.getElementById("divSubmitPubKey").style.display = "block"
     }

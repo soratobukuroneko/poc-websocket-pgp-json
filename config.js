@@ -8,3 +8,5 @@ const FETCH_PROTOCOL =  "http"
 
 // Must match the value in server.py
 const ADMIN_ACCESS = 100
+
+const formNames = ["text_field_form", "other_form"]

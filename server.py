@@ -22,7 +22,7 @@ class JsonMissingFieldException(Exception):
         
 
 class RequestHandler(BaseHTTPRequestHandler):
-    _RE_FILES = re.compile(r"^(/|/admin\.html|/form[12]\.html|/config\.js|/public\.js|/registered\.js|/openpgp\.min\.js)$")
+    _RE_FILES = re.compile(r"^(/|/admin\.html|/data\.html|/forms\.html|/config\.js|/public\.js|/registered\.js|/openpgp\.min\.js)$")
     _RE_FORM_NAME = re.compile(r"^([-_0-9a-zA-Z]{1,64})$")
     _RE_KEY_FINGERPRINT = re.compile(r"^([0-9a-fA-F]{40})$")
     _RE_PGP_JSON_REQUEST_FIELD = re.compile(r"^[0-9a-zA-Z_/]{3,100}$")
@@ -45,14 +45,15 @@ class RequestHandler(BaseHTTPRequestHandler):
             self.end_headers()
 
     def _api_get_collected_data(self):
-        if self._pgpjson_user["access_level"] != ADMIN_ACCESS:
-            self._close_websocket(1008, "Access denied.")
-            return
-
         form_name = re.match(self._RE_FORM_NAME, self._pgpjson_pending_request.replace("data/get/", ""))
         if form_name:
-            collected_data = self.server.db.get_collected_data(form_name.group(1))
-            self._api_answer_pgp_json(collected_data)
+            form_name = form_name.group(1)
+            form_users = self.server.db.get_form_keys_fingerprints(form_name)
+            if self._pgpjson_user["fingerprint"] not in form_users["fingerprints"]:
+                self._close_websocket(1008, "Access denied.")
+            else:
+                collected_data = self.server.db.get_collected_data(form_name)
+                self._api_answer_pgp_json(collected_data)
         else:
             self._close_websocket(1002, "Invalid form name.")
 
@@ -128,6 +129,28 @@ class RequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(json.dumps({ "message": message }).encode())
 
+    def _api_set_collected_data(self):
+        if self._pgpjson_user["access_level"] != ADMIN_ACCESS:
+            self._close_websocket(1008, "Access denied.")
+            return
+
+        form_name = re.match(self._RE_FORM_NAME, self._pgpjson_pending_request.replace("data/set/", ""))
+        if form_name:
+            if self._pgpjson_payload is None:
+                self._close_websocket(1002, "Missing payload.")
+                return
+            for data in self._pgpjson_payload:
+                if "secret" not in data or "id" not in data:
+                    self._close_websocket(1002, "Invalid payload")
+                    return
+                elif not data["secret"].startswith("-----BEGIN PGP MESSAGE-----"):
+                    self._close_websocket(1002, "Invalid PGP message")
+                    return
+            self.server.db.set_collected_data(form_name.group(1), self._pgpjson_payload)
+            self._close_websocket()
+        else:
+            self._close_websocket(1002, "Invalid form name.")
+
     def _api_set_form_keys_fingerprints(self):
         if self._pgpjson_user["access_level"] != ADMIN_ACCESS:
             self._close_websocket(1008, "Access denied.")
@@ -172,8 +195,10 @@ class RequestHandler(BaseHTTPRequestHandler):
         # Authentication
         if len(signatures) != 1:
             self._close_websocket(1002, "Multi-signatures message not implemented.")
+            return
         elif "request" not in json_ or not re.match(self._RE_PGP_JSON_REQUEST_FIELD, json_["request"]):
             self._close_websocket(1002, "Missing or invalid request field.")
+            return
 
         elif self._pgpjson_nonce is None:
             self._pgpjson_pending_request = json_["request"]
@@ -181,14 +206,18 @@ class RequestHandler(BaseHTTPRequestHandler):
                 self._pgpjson_payload = json_["payload"]
             self._pgpjson_client_key = self._gpg_context.get_key(signatures[0].fpr)
             self._request_signature()
+            return
         elif "nonce" not in json_ or json_["nonce"] != self._pgpjson_nonce:
             self._close_websocket(1002, "Authentication failed.")
+            return
 
         self._pgpjson_user = self.server.db.get_user(self._pgpjson_client_key.fpr)
 
         # API "routes"
         if self._pgpjson_pending_request.startswith("data/get/"):
             self._api_get_collected_data()
+        elif self._pgpjson_pending_request.startswith("data/set/"):
+            self._api_set_collected_data()
         elif self._pgpjson_pending_request.startswith("form/get/"):
             self._api_get_form_keys_fingerprints()
         elif self._pgpjson_pending_request.startswith("form/set/"):
@@ -379,7 +408,7 @@ if __name__ == "__main__":
     def run(listen_to, gpg_home, db):
         httpd = Server(listen_to, gpg_home, db)
         try:
-            print(f"Starting server… listening to {listen_to[0]}:{listen_to[1]} with datadir {gpg_home}, db {db}")
+            print(f"Starting server… listening to {listen_to[0]}:{listen_to[1]} with keystore {gpg_home}, db {db}")
             httpd.serve_forever()
         except KeyboardInterrupt:
             pass

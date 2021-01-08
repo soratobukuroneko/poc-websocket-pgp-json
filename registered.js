@@ -2,14 +2,14 @@
 
 const re_nonce = /^[A-Za-z0-9\-_=]+$/
 
-function amIAdmin(password, myFingerprint, onAnswer, onClose, onError) {
-    websocketApi(password, "user/" + myFingerprint,
+function amIAdmin(privateKey, myFingerprint, onAnswer, onClose, onError) {
+    websocketApi(privateKey, "user/" + myFingerprint,
         answer => onAnswer(answer !== null && answer.access_level === ADMIN_ACCESS),
         onClose,
         onError)
 }
 
-function deleteKeys(password, onDelete, onError) {
+function deleteKeys(privateKey, onDelete, onError) {
     const deleteCb = () => {
         localStorage.removeItem("my_keys")
         onDelete()
@@ -18,7 +18,7 @@ function deleteKeys(password, onDelete, onError) {
     if (!isMyKeyOnserver()) {
         deleteCb()
     } else {
-        websocketApi(password, "key/delete",
+        websocketApi(privateKey, "key/delete",
             () => {},
             deleteCb,
             onError
@@ -26,16 +26,23 @@ function deleteKeys(password, onDelete, onError) {
     }
 }
 
-function getAllUser(password, onAnswer, onClose, onError) {
-    websocketApi(password, "user/all", onAnswer, onClose, onError)
+function getAllUser(privateKey, onAnswer, onClose, onError) {
+    websocketApi(privateKey, "user/all", onAnswer, onClose, onError)
 }
 
-function getCollectedData(password, formName, onAnswer, onClose, onError) {
-    websocketApi(password, "data/get/" + formName, onAnswer, onClose, onError)
+function getCollectedData(privateKey, formName, onAnswer, onClose, onError) {
+    websocketApi(privateKey, "data/get/" + formName, onAnswer, onClose, onError)
 }
 
-function getFormKeysFingerprints(password, formId, onAnswer, onClose, onError) {
-    websocketApi(password, "form/get/" + formId, onAnswer, onClose, onError)
+function getFormKeysFingerprints(privateKey, formId, onAnswer, onClose, onError) {
+    websocketApi(privateKey, "form/get/" + formId, onAnswer, onClose, onError)
+}
+
+async function getPrivateKey(password) {
+    const { keys: [myKey] } = await openpgp.key.readArmored(loadMyKeys().priv)
+    if (password !== null && password.length)
+        await myKey.decrypt(password)
+    return myKey
 }
 
 async function initKeys(passphrase) {
@@ -61,20 +68,20 @@ async function initKeys(passphrase) {
 
     localStorage.setItem("my_keys", JSON.stringify(myKeys))
 
-    return myKeys
+    return kp
 }
 
 async function isMyKeyOnserver() {
-    const res = await fetch(FETCH_PROTOCOL + "://" + SRV + "/key/" + loadMyKeys().id)
-    if (res.ok) {
-        const key = await res.text()
+    const response = await fetch(FETCH_PROTOCOL + "://" + SRV + "/key/" + loadMyKeys().id)
+    if (response.ok) {
+        const key = await response.text()
         if (key === "Unknown") {
             return false
         } else {
             return true
         }
     } else {
-        throw Error("Error while checking for key on server.")
+        throw new Error("Error while checking for key on server.")
     }
 }
 
@@ -83,22 +90,22 @@ function loadMyKeys() {
 }
 
 async function loadSrvKey() {
-    let key = sessionStorage.getItem("srv_key")
-    if (key === null) {
-        const res = await fetch(FETCH_PROTOCOL + "://" + SRV + "/key/srv")
-        if (res.ok) {
-            key = await res.text()
-            sessionStorage.setItem("srv_key", key)
-        } else {
-            throw Error("Error while fetching server key.")
-        }
+    let key = null
+    const response = await fetch(FETCH_PROTOCOL + "://" + SRV + "/key/srv")
+    if (response.ok) {
+        key = await response.text()
+    } else {
+        throw new Error("Error while fetching server key.")
     }
-
     return key
 }
 
-function setFormKeysFingerprints(password, formName, fingerprints, onClose, onError) {
-    websocketApi(password, "form/set/" + formName, answer => answer, onClose, onError, { fingerprints })
+function setCollectedData(privateKey, formName, data, onClose, onError) {
+    websocketApi(privateKey, "data/set/" + formName, answer => answer, onClose, onError, data)
+}
+
+function setFormKeysFingerprints(privateKey, formName, fingerprints, onClose, onError) {
+    websocketApi(privateKey, "form/set/" + formName, answer => answer, onClose, onError, { fingerprints })
 }
 
 async function submitPubKey() {
@@ -111,23 +118,27 @@ async function submitPubKey() {
     })
 }
 
-async function websocketApi(password, request, onAnswer, onClose, onError, payload=null) {
+async function websocketApi(privateKey, request, onAnswer, onClose, onError, payload=null) {
     const srvKey = await loadSrvKey()
-    const { keys: [myKey] } = await openpgp.key.readArmored(loadMyKeys().priv)
-    if (password !== null && password.length)
-        await myKey.decrypt(password)
     const message = JSON.stringify({ request, payload })
-    const { data: encrypted_request } = await openpgp.encrypt({
-        message: openpgp.message.fromText(message),
-        publicKeys: (await openpgp.key.readArmored(srvKey)).keys,
-        privateKeys: [myKey]
-    })
+    let encrypted_request
+    try {
+        encrypted_request = (await openpgp.encrypt({
+            message: openpgp.message.fromText(message),
+            publicKeys: (await openpgp.key.readArmored(srvKey)).keys,
+            privateKeys: privateKey
+        })).data
+    } catch (error) {
+        onError(error.message)
+        return
+    }
+
     const ws = new WebSocket("ws://" + SRV, "pgp-json")
     ws.onmessage = async message => {
         const decrypted = await openpgp.decrypt({
             message: await openpgp.message.readArmored(message.data),
             publicKeys: (await openpgp.key.readArmored(srvKey)).keys,
-            privateKeys: [myKey]
+            privateKeys: privateKey
         })
         if (decrypted.signatures[0].valid) {
             const message = JSON.parse(decrypted.data)
@@ -136,7 +147,7 @@ async function websocketApi(password, request, onAnswer, onClose, onError, paylo
                     const { data: signature_response } = await openpgp.encrypt({
                         message: await openpgp.message.fromText(decrypted.data),
                         publicKeys: (await openpgp.key.readArmored(srvKey)).keys,
-                        privateKeys: [myKey]
+                        privateKeys: privateKey
                     })
                     ws.send(signature_response)
                 } else if (typeof message.payload === "object") {

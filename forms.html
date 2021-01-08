@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Forms</title>
+    <meta charset="utf-8">
+    <script src="openpgp.min.js"></script>
+    <script src="config.js"></script>
+    <script src="public.js"></script>
+    <script>
+    "use strict"
+
+    async function submit(index) {
+        const data = document.getElementById("secret" + (index + 1)).value
+        try {
+            await postFormSecret(formNames[index], data)
+            document.getElementById("submitMsg" + (index + 1)).innerHTML = "Sent!"
+            setTimeout(() => document.getElementById("submitMsg" + (index + 1)).innerHTML = "", 2500)
+        } catch (error) {
+            document.getElementById("submitMsg" + (index + 1)).innerHTML = error.message
+        }
+    }
+    </script>
+</head>
+
+<body>
+    <h1>Test form 1</h1>
+    <form action="javascript:submit(0)">
+        <p>
+            <label>Secret:</label><br>
+            <input type="text" id="secret1"></input>
+        </p>
+        <p id="submitMsg1"></p>
+        <button>Submit</button>
+    </form>
+    <h1>Test form 2</h1>
+    <form action="javascript:submit(1)">
+        <p>
+            <label>Secret:</label><br>
+            <input type="text" id="secret2"></input>
+        </p>
+        <p id="submitMsg2"></p>
+        <button>Submit</button>
+    </form>
+</body>
+</html>

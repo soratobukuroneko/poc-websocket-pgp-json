@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Data</title>
+    <meta charset="utf-8">
+    <script src="openpgp.min.js"></script>
+    <script src="config.js"></script>
+    <script src="registered.js"></script>
+    <script>
+    "use strict"
+    async function loadData() {
+        const myKey = await getPrivateKey(document.getElementById("password").value)
+        for (let i = 0; i < 2; i++) {
+            getCollectedData(myKey, formNames[i], async answer => {
+                const list = document.getElementById("dataList" + (i + 1))
+                for (const data of answer.collected_data) {
+                    const listElement = document.createElement("li")
+                    const { data: decrypted } = await openpgp.decrypt({
+                        message: await openpgp.message.readArmored(data.secret),
+                        privateKeys: myKey
+                    })
+                    listElement.innerHTML = decrypted
+                    list.appendChild(listElement)
+                }
+                document.getElementById("login").style.display = "none"
+                document.getElementById("data").style.display = "block"
+            },
+            () => {},
+            error => document.getElementById("dataError" + (i + 1)).innerHTML = error)
+        }
+    }
+    </script>
+</head>
+
+<body>
+    <div id="login">
+        <h1>Unlock your key to access data:</h1>
+        <form action="javascript:loadData()">
+            <p>
+                <label>Password:</label><br>
+                <input type="password" id="password">
+            </p>
+            <p>
+                <button>Unlock key</button>
+            </p>
+        </form>
+        <p id="loadKeyError"></p>
+    </div>
+    <div id="data" style="display: none">
+        <h1>Test form 1</h1>
+        <ul id="dataList1"></ul>
+        <p id="dataError1"></p>
+        <h1>Test form 2</h1>
+        <ul id="dataList2"></ul>
+        <p id="dataError2"></p>
+    </div>
+</body>
+</html>
+
