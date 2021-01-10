@@ -6,6 +6,7 @@ This PoC shows a way to encrypt e2e data collected from forms for one or more us
 
 * Recent Python 3
 * Python 3 binding for GPGME (python3-gpg)
+* OpenPGP.js (openpgp.min.js)
 
 ## Run
 
