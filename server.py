@@ -265,7 +265,6 @@ class RequestHandler(BaseHTTPRequestHandler):
         length = int(self.headers["Content-Length"])
         return self.rfile.read(length)
 
-    # implement type check for fields
     def _read_json(self, required_fields=list()):
         try:
             data = json.loads(self._read())

@@ -317,7 +317,6 @@ def handshake(request_handler: BaseHTTPRequestHandler, subprotocols=[]):
 
     return selected_subprotocol
 
-# TODO make it iterative
 def read_next_message(rfile: BufferedIOBase, wfile: BufferedIOBase):
     frame = _read_data_frame(rfile)
     message = WebSocketMessage(frame["opcode"], frame["payload"])

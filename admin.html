@@ -69,7 +69,7 @@
             async () => {
                 const reencryptedData = []
                 const myKey = (await openpgp.key.readArmored(loadMyKeys().priv)).keys
-                const armoredKeys = (await getFormKeys(formNames[index])).keys
+                const armoredKeys = await getFormKeys(formNames[index])
                 const publicKeys = await Promise.all(armoredKeys.map(async key => (await openpgp.key.readArmored(key)).keys[0]))
                 for (const data of collected_data) {
                     const { data: decrypted } = await openpgp.decrypt({
