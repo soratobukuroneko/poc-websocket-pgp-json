@@ -32,7 +32,7 @@ class RequestHandler(BaseHTTPRequestHandler):
         request_answer = websocket.encrypt_pgp_json({
             "request": self._pgpjson_pending_request,
             "payload": payload
-        }, [self._pgpjson_client_key], self._gpg_context)
+        }, self._pgpjson_client_key, self._gpg_context)
         websocket.send_message(self.wfile, request_answer)
         self._close_websocket()
 
@@ -188,15 +188,11 @@ class RequestHandler(BaseHTTPRequestHandler):
 
 
     def _handle_api_request(self, message: websocket.WebSocketMessage):
-        signatures_keys = [self._pgpjson_client_key] if self._pgpjson_client_key is not None else None
-        json_, signatures = websocket.decrypt_pgp_json(self.wfile, self._gpg_context,
-                                                       message, signatures_keys)
+        signature_key = self._pgpjson_client_key if self._pgpjson_client_key is not None else None
+        json_, signature = websocket.decrypt_pgp_json(self.wfile, self._gpg_context,
+                                                       message, signature_key)
 
-        # Authentication
-        if len(signatures) != 1:
-            self._close_websocket(1002, "Multi-signatures message not implemented.")
-            return
-        elif "request" not in json_ or not re.match(self._RE_PGP_JSON_REQUEST_FIELD, json_["request"]):
+        if "request" not in json_ or not re.match(self._RE_PGP_JSON_REQUEST_FIELD, json_["request"]):
             self._close_websocket(1002, "Missing or invalid request field.")
             return
 
@@ -204,7 +200,7 @@ class RequestHandler(BaseHTTPRequestHandler):
             self._pgpjson_pending_request = json_["request"]
             if "payload" in json_:
                 self._pgpjson_payload = json_["payload"]
-            self._pgpjson_client_key = self._gpg_context.get_key(signatures[0].fpr)
+            self._pgpjson_client_key = self._gpg_context.get_key(signature[0].fpr)
             self._request_signature()
             return
         elif "nonce" not in json_ or json_["nonce"] != self._pgpjson_nonce:
@@ -280,7 +276,7 @@ class RequestHandler(BaseHTTPRequestHandler):
         signature_request = websocket.encrypt_pgp_json({
             "nonce": self._pgpjson_nonce,
             "request": self._pgpjson_pending_request
-        }, [self._pgpjson_client_key], self._gpg_context)
+        }, self._pgpjson_client_key, self._gpg_context)
         websocket.send_message(self.wfile, signature_request)
 
     def _serve_err404(self):

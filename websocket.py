@@ -241,7 +241,7 @@ def close(wfile: BufferedIOBase, code=1000, reason=None):
     frame = _encode_data_frame(1, OPCODE["close"], 0, 0, 0, payload)
     wfile.write(frame)
 
-def decrypt_pgp_json(wfile: BufferedIOBase, gpg_context: GPGContext, message: WebSocketMessage, signatures_keys=None):
+def decrypt_pgp_json(wfile: BufferedIOBase, gpg_context: GPGContext, message: WebSocketMessage, signature_key=None):
     if message.opcode != OPCODE["text"]:
         close(wfile, 1003, "Only text datatype is allowed.")
         raise WebSocketCloseException(1003, "Received no-text datatype.")
@@ -254,17 +254,9 @@ def decrypt_pgp_json(wfile: BufferedIOBase, gpg_context: GPGContext, message: We
     if len(verify_result.signatures) == 0:
         close(wfile, 1008, "No signature recognized.")
         raise WebSocketCloseException(1008, "Message with missing or unknown signature.")
-    if signatures_keys is not None: # and client_key.fpr != verify_result.signatures[0].fpr:
-        if len(signatures_keys) != len(verify_result.signatures):
-            close(wfile, 1008, "Message signature check failed.")
-            raise WebSocketCloseException(1008, "Signature count doesn't match signatures_keys")
-
-        signatures_fingerprints = [client_key.fpr for client_key in signatures_keys]
-        message_signatures = [signature.fpr for signature in verify_result.signatures]
-        for client_fpr in signatures_fingerprints:
-            if client_fpr not in message_signatures:
-                close(wfile, 1008, "Message signature check failed")
-                raise WebSocketCloseException(1008, "Message has a signature from a key not in signatures_keys.")
+    if signature_key is not None and signature_key.fpr != verify_result.signatures[0].fpr:
+        close(wfile, 1008, "Message signature check failed.")
+        raise WebSocketCloseException(1008, "Signing keys doesn't match.")
 
     signature_age = int(time()) - verify_result.signatures[0].timestamp
     if signature_age > PGP_JSON_SIGNATURE_VALIDITY:
@@ -279,10 +271,10 @@ def decrypt_pgp_json(wfile: BufferedIOBase, gpg_context: GPGContext, message: We
 
     return json_, verify_result.signatures
 
-def encrypt_pgp_json(obj: dict, recipients, gpg_context: GPGContext):
+def encrypt_pgp_json(obj: dict, recipient, gpg_context: GPGContext):
     json_ = json.dumps(obj).encode()
     ciphertext, result, sign_result = gpg_context.encrypt(json_,
-        recipients=recipients,
+        recipients=[recipient],
         sign=True,
         always_trust=True)
     return ciphertext
