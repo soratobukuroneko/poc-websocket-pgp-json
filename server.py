@@ -279,7 +279,6 @@ class RequestHandler(BaseHTTPRequestHandler):
         self._pgpjson_nonce = token_urlsafe(NONCE_BYTES)
         signature_request = websocket.encrypt_pgp_json({
             "nonce": self._pgpjson_nonce,
-            "payload": self._pgpjson_payload,
             "request": self._pgpjson_pending_request
         }, [self._pgpjson_client_key], self._gpg_context)
         websocket.send_message(self.wfile, signature_request)
