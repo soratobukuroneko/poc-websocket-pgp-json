@@ -1,6 +1,6 @@
 "use strict"
 
-const SRV = "127.0.0.1:8000"
+const SRV = document.location.host
 // As we expect that the public keys are fetched on a secure connection,
 // http should only be concidered if tunneled by ssh or something like
 // this.
