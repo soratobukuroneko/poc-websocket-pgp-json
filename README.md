@@ -41,3 +41,7 @@ Once the server is running you can browse:
 ### Public request
 
 Simply done over basic HTTP with fetch. Again we trust that the link is secure
+
+## Notable missing feature
+
+On key deletion there is no notification that data may needs to be reencrypted.
